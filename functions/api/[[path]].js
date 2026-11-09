@@ -7,11 +7,26 @@
  *   ZHIPU_API_KEY = 你的 Key
  */
 const UPSTREAM = 'https://open.bigmodel.cn';
+
+/** 其他 OpenAI 兼容免费供应商（与 js/api.js 的 PROVIDERS 保持一致） */
+const OAI_BASES = {
+  sensenova: 'https://token.sensenova.cn/v1',
+  doubao: 'https://ark.cn-beijing.volces.com/api/v3',
+  hunyuan: 'https://tokenhub.tencentcloudapi.com/v1',
+  qianfan: 'https://qianfan.baidubce.com/v2',
+  spark: 'https://spark-api-open.xf-yun.com/v1',
+  dashscope: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  siliconflow: 'https://api.siliconflow.cn/v1',
+  qiniu: 'https://api.qnaigc.com/v1',
+  modelscope: 'https://api-inference.modelscope.cn/v1',
+};
+
 const ALLOW_HOSTS = [
   'open.bigmodel.cn',
   'bigmodel.cn',
   'ufileos.com',
   'cn-wlcb.ufileos.com',
+  'volces.com',
 ];
 
 const CORS = {
@@ -70,23 +85,38 @@ export async function onRequest(context) {
     return handleDownload(url.searchParams.get('u') || '', env);
   }
 
+  let target = `${UPSTREAM}${url.pathname}${url.search}`;
+  let isZhipu = true;
+  if (segments[0] === 'oai') {
+    const base = OAI_BASES[segments[1]];
+    if (!base) {
+      return new Response(JSON.stringify({ error: { message: `未知供应商：${segments[1]}` } }), {
+        status: 404,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    }
+    target = `${base}/${segments.slice(2).join('/')}${url.search}`;
+    isZhipu = false;
+  }
+
   const headers = new Headers();
   const contentType = request.headers.get('Content-Type');
   if (contentType) headers.set('Content-Type', contentType);
   const accept = request.headers.get('Accept');
   if (accept) headers.set('Accept', accept);
-  const auth = request.headers.get('Authorization') || (env.ZHIPU_API_KEY ? `Bearer ${env.ZHIPU_API_KEY}` : '');
+  const auth = request.headers.get('Authorization') || (isZhipu && env.ZHIPU_API_KEY ? `Bearer ${env.ZHIPU_API_KEY}` : '');
   if (auth) headers.set('Authorization', auth);
 
   const init = { method: request.method, headers };
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    init.body = request.body;
-    init.duplex = 'half';
+    // 读取完整 body 并带 Content-Length（部分上游如讯飞网关不接受流式/chunked）
+    const buf = await request.arrayBuffer();
+    init.body = buf; // fetch 会自动设置 Content-Length，不可手动指定
   }
 
   let resp;
   try {
-    resp = await fetch(`${UPSTREAM}${url.pathname}${url.search}`, init);
+    resp = await fetch(target, init);
   } catch (e) {
     return new Response(JSON.stringify({ error: { code: 'proxy', message: `代理请求失败：${e.message}` } }), {
       status: 502,

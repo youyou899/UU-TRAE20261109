@@ -47,16 +47,16 @@ export function renderNovel(root) {
             </select>
           </div>
           <div class="field"><label>章节数</label>
-            <input class="input" id="fChapters" type="number" min="1" max="30" value="${pr.chapters}" />
+            <input class="input" id="fChapters" type="number" min="1" max="200" value="${pr.chapters}" title="12 万字 ≈ 60 章 × 2000 字；30 万字 ≈ 100 章 × 3000 字" />
           </div>
         </div>
         <div class="field"><label>每章目标字数</label>
           <select class="select" id="fWords">
-            ${[1200, 2000, 3000, 4000].map((w) => `<option value="${w}" ${w === pr.wordsPerChapter ? 'selected' : ''}>约 ${w} 字</option>`).join('')}
+            ${[800, 1200, 2000, 3000, 5000].map((w) => `<option value="${w}" ${w === pr.wordsPerChapter ? 'selected' : ''}>约 ${w} 字</option>`).join('')}
           </select>
         </div>
         <button class="btn btn-soft" style="width:100%" id="savePremise">保存设定</button>
-        <div class="note" style="margin-top:14px">建议先写 6–8 章、每章 2000 字，生成更快，也方便后面拆分镜。</div>
+        <div class="note" style="margin-top:14px">参考：<b>12 万字</b> ≈ 60 章 × 2000 字；<b>30 万字</b> ≈ 100 章 × 3000 字。每章都会带上大纲、角色、前两章结尾，保证连贯。</div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -110,7 +110,7 @@ export function renderNovel(root) {
       hero: $('#fHero').value.trim(),
       style: $('#fStyle').value,
       perspective: $('#fPerspective').value,
-      chapters: Math.max(1, Math.min(30, Number($('#fChapters').value) || 6)),
+      chapters: Math.max(1, Math.min(200, Number($('#fChapters').value) || 6)),
       wordsPerChapter: Number($('#fWords').value) || 2000,
     };
     return p.premise;
@@ -285,7 +285,7 @@ export function renderNovel(root) {
     if (generating) return toast('正在生成，请稍候', 'warn');
     if (!p.outline.trim()) return toast('请先生成或填写大纲', 'warn');
     const n = nextIndex();
-    if (n > 30) return toast('章节数已达上限', 'warn');
+    if (n > 200) return toast('章节数已达上限', 'warn');
     const entry = outlineEntries().find((x) => x.index === n) || { title: `第${n}章`, summary: '' };
     await writeChapter(n, entry, btn);
     renderChapters();
@@ -302,9 +302,26 @@ export function renderNovel(root) {
     try {
       for (let n = p.chapters.length + 1; n <= max; n++) {
         const entry = entries.find((x) => x.index === n) || { title: `第${n}章`, summary: '' };
-        await writeChapter(n, entry, null, true);
+        const ok = await writeChapter(n, entry, null, true);
         renderChapters();
         if (abortCtrl?.signal.aborted) break;
+        // 每 5 章生成一次剧情进度摘要，用于后续章节保持连贯
+        if (ok && n % 5 === 0) {
+          try {
+            const summary = await chat({
+              messages: [
+                { role: 'system', content: '你是小说编辑，擅长用精炼语言总结已发生剧情。' },
+                { role: 'user', content: progressPrompt(p, n) },
+              ],
+              maxTokens: 1200,
+              temperature: 0.5,
+              signal: abortCtrl?.signal,
+            });
+            p.progressSummary = summary.trim();
+            saveSoon(0);
+            toast(`已整理第 ${n} 章剧情进度，后续章节将延续`, 'ok', 2600);
+          } catch (e) { /* 不阻塞主流程 */ }
+        }
       }
       if (!abortCtrl?.signal.aborted) toast('全部章节已生成', 'ok');
     } finally {
@@ -410,10 +427,13 @@ function outlinePrompt(pr, name) {
 }
 
 function chapterPrompt(p, n, entry) {
-  const prev = p.chapters[n - 2];
-  const prevTail = prev ? (prev.content || '').slice(-1000) : '';
+  const prev1 = p.chapters[n - 2];
+  const prev2 = p.chapters[n - 3];
+  const tail1 = prev1 ? (prev1.content || '').slice(-1200) : '';
+  const tail2 = prev2 ? (prev2.content || '').slice(-600) : '';
+  const progress = p.progressSummary || '';
   const entries = parseOutline(p.outline);
-  return `请继续创作《${p.name}》。
+  return `请继续创作《${p.name}》（第 ${n} 章 / 共 ${entries.length || p.premise.chapters} 章）。
 
 【题材】${p.premise.genre}　【风格】${p.premise.style}　【视角】${p.premise.perspective}　【主角】${p.premise.hero || '见大纲'}
 【核心设定】${p.premise.theme}
@@ -422,18 +442,41 @@ function chapterPrompt(p, n, entry) {
 ${p.outline}
 
 【角色设定】
-${p.characters || '请保持人物前后一致'}
+${p.characters || '请保持人物前后一致，自行设定并保持'}
+${progress ? `\n【剧情进度（此前已发生的关键事件，必须延续）】\n${progress}` : ''}
 
-【前情提要】${prevTail ? `上一章结尾：${prevTail}` : '这是开篇第一章，需要快速建立人物、困境与钩子。'}
+${prev2 ? `【第 ${n - 2} 章结尾】\n${tail2}\n` : ''}
+${prev1 ? `【第 ${n - 1} 章结尾】\n${tail1}\n` : '【提示】这是开篇第一章，快速建立人物、困境与钩子。'}
 
 现在创作：第${n}章 ${entry.title || ''}
 本章梗概：${entry.summary || '按大纲推进，制造冲突与转折'}
 
-要求：
-1. 约 ${p.premise.wordsPerChapter} 字，情节完整：场景 → 冲突 → 转折 → 章末钩子
-2. 多写动作、对话、感官细节，少做设定解释；不要写“本章完”“欲知后事”
-3. 与前文人物、时间线、伏笔保持一致
-4. 只输出正文，不要章节标题、序号或任何说明`;
+硬性要求：
+1. 约 ${p.premise.wordsPerChapter} 字，结构完整：场景切入 → 冲突升级 → 转折 → 章末钩子
+2. 章末必须留钩子（悬念/反转/新危机），让读者忍不住翻下一章
+3. 多用动作、表情、对话（口语化、有个性）、感官细节；少做设定解释和心理独白
+4. 与前文人物姓名、时间线、已埋伏笔严格一致；不要推翻已发生的剧情
+5. 不要写“本章完”“欲知后事”等套话，不要章节标题或序号
+6. 只输出正文，不要任何说明文字`;
+}
+
+function progressPrompt(p, upToN) {
+  const recent = p.chapters.slice(-8).map((c, i) => {
+    const no = p.chapters.length - 7 + i;
+    return `第${no}章 ${c.title || ''}：${(c.content || '').slice(0, 280)}`;
+  }).join('\n');
+  return `请用 400-600 字总结《${p.name}》到第 ${upToN} 章为止的剧情进度。
+
+【全书大纲】
+${p.outline}
+
+【角色设定】
+${p.characters || '(略)'}
+
+【最近章节摘要】
+${recent}
+
+要求：只列出主线已发生的关键事件、人物关系变化、未解悬念和伏笔；不要新创作剧情；不要章节标题；用分段叙述。`;
 }
 
 function charactersPrompt(p) {

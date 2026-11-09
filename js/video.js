@@ -151,7 +151,10 @@ export function renderVideo(root) {
         setBusy(b, true, '查询');
         try {
           live.set(shot.id, { state: 'polling', text: '查询中' });
-          const res = await waitVideo(shot.videoTaskId, { onTick: (i) => setLive(shot, i) });
+          const res = await waitVideo(shot.videoTaskId, {
+            onTick: (i) => setLive(shot, i),
+            provider: shot.videoTaskProvider || getSettings().videoProvider || 'zhipu',
+          });
           await saveVideo(shot, res.url);
           live.delete(shot.id);
           refresh(shot);
@@ -233,9 +236,11 @@ export function renderVideo(root) {
           fps: 30,
         });
         shot.videoTaskId = task.id;
+        shot.videoTaskProvider = task.provider || 'zhipu';
         saveSoon(0);
         live.set(shot.id, { state: 'polling', text: '排队生成中' });
         const res = await waitVideo(task.id, {
+          provider: shot.videoTaskProvider,
           onTick: (info) => {
             setLive(shot, info);
             if (showProgress) $('#progressText').textContent = `${Math.floor(info.elapsed / 1000)} 秒`;
@@ -363,6 +368,7 @@ export function renderVideo(root) {
       const cfg = getSettings();
       const task = await createVideo({ prompt, size: cfg.videoSize, duration: 5, fps: 30 });
       const res = await waitVideo(task.id, {
+        provider: task.provider || 'zhipu',
         onTick: (info) => {
           const el = $('#freeStatus');
           if (el) el.textContent = `生成中 ${Math.floor((info.elapsed || 0) / 1000)} 秒（免费模型可能排队，请耐心等待）`;

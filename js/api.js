@@ -38,6 +38,84 @@ export const VIDEO_SIZES = [
   { id: '1920x1080', label: '横屏 1080P · 1920×1080' },
 ];
 
+/** 其他永久免费 / OpenAI 兼容供应商（模型名可在设置里改） */
+export const PROVIDERS = [
+  {
+    id: 'sensenova',
+    name: '商汤 SenseNova',
+    base: 'https://token.sensenova.cn/v1',
+    model: 'sensenova-6.5-flash-lite',
+    alt: [],
+    note: '需邀请码 · 暂不可用',
+  },
+  {
+    id: 'doubao',
+    name: '火山引擎豆包',
+    base: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: 'doubao-seed-2-1-lite-260915',
+    alt: ['deepseek-v4-1-flash-economy-261017', 'glm-5-3-flash-260828', 'kimi-k3-1-pro-261024'],
+    note: '每日 200 万 Token · 实测可用 · 含出图/视频',
+  },
+  {
+    id: 'hunyuan',
+    name: '腾讯混元 Lite',
+    base: 'https://tokenhub.tencentcloudapi.com/v1',
+    model: 'hunyuan-lite',
+    alt: [],
+    note: 'TokenHub 需 API 3.0 签名 · 暂不可用',
+  },
+  {
+    id: 'qianfan',
+    name: '百度千帆',
+    base: 'https://qianfan.baidubce.com/v2',
+    model: 'ernie-speed',
+    alt: ['ernie-lite'],
+    note: 'Key 有效 · 需控制台开通模型',
+  },
+  {
+    id: 'spark',
+    name: '讯飞星火 Maas',
+    base: 'https://maas-api.cn-huabei-1.xf-yun.com/v2',
+    model: 'spark-x2.5',
+    alt: ['spark-x2.5-4b', 'xop3qwen4b'],
+    note: 'Key 已配 · 模型授权待控制台确认',
+  },
+  {
+    id: 'dashscope',
+    name: '阿里云百炼',
+    base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-turbo',
+    alt: ['qwen-plus', 'qwen-flash'],
+    note: 'qwen-turbo 长期免费',
+  },
+  {
+    id: 'siliconflow',
+    name: '硅基流动',
+    base: 'https://api.siliconflow.cn/v1',
+    model: 'Qwen/Qwen2.5-7B-Instruct',
+    alt: ['Qwen/Qwen3-8B', 'THUDM/GLM-4-9B-0414'],
+    note: '小参数模型免费 · 需实名',
+  },
+  {
+    id: 'qiniu',
+    name: '七牛云 Conatus',
+    base: 'https://api.qnaigc.com/v1',
+    model: 'deepseek-v3',
+    alt: ['deepseek-r1', 'qwen2.5-72b-instruct'],
+    note: '限时大额度 · 建议先小规模试',
+  },
+  {
+    id: 'modelscope',
+    name: '魔搭 ModelScope',
+    base: 'https://api-inference.modelscope.cn/v1',
+    model: 'Qwen/Qwen2.5-7B-Instruct',
+    alt: ['deepseek-ai/DeepSeek-V3'],
+    note: '每日签到魔粒 · 免费额度',
+  },
+];
+
+export const PROVIDER_MAP = Object.fromEntries(PROVIDERS.map((p) => [p.id, p]));
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = '' } = {}) {
     super(message);
@@ -93,31 +171,89 @@ async function parseError(resp) {
  */
 const FALLBACK_CHAIN = ['glm-4.7-flash', 'glm-4.5-flash', 'glm-4-flash-250414', 'glm-4-flash'];
 
+/** 供应商是否可用：智谱允许用云端环境变量兜底，其余必须有 Key */
+export function providerUsable(id) {
+  if (id === 'zhipu') {
+    const s = getSettings();
+    const host = location.hostname;
+    const local = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.pages.dev');
+    return Boolean(s.apiKey) || local;
+  }
+  return Boolean(getSettings().providers?.[id]?.apiKey);
+}
+
+export function providerConfig(id) {
+  const s = getSettings();
+  if (id === 'zhipu') {
+    const model = s.textModel || 'glm-4.7-flash';
+    return { id, name: '智谱 BigModel', model, models: [model, ...FALLBACK_CHAIN.filter((m) => m !== model)], apiKey: s.apiKey || '' };
+  }
+  const p = PROVIDER_MAP[id];
+  const cfg = s.providers?.[id] || {};
+  const model = cfg.model || p.model;
+  return { id, name: p.name, model, models: [model, ...(p.alt || []).filter((m) => m !== model)], apiKey: cfg.apiKey || '' };
+}
+
+function chatEndpoint(id) {
+  return id === 'zhipu' ? `${apiBase()}/paas/v4/chat/completions` : `${apiBase()}/oai/${id}/chat/completions`;
+}
+
+/**
+ * 对话（流式）；按「优先供应商 → 备用供应商」顺序自动切换
+ * @param {object} opts
+ * @param {Array} opts.messages
+ * @param {string} [opts.provider] 指定供应商（zhipu / sensenova / doubao / hunyuan / qianfan / spark）
+ */
 export async function chat(opts) {
-  const preferred = opts.model || getSettings().textModel;
-  const chain = [preferred, ...FALLBACK_CHAIN.filter((m) => m !== preferred)];
+  const s = getSettings();
+  const auto = opts.model && /^glm-/.test(opts.model) ? 'zhipu' : s.preferredProvider || 'zhipu';
+  const preferred = opts.provider || auto;
+  const ids = [preferred, 'zhipu', ...PROVIDERS.map((p) => p.id)].filter((id, i, arr) => arr.indexOf(id) === i);
+  // 智谱始终尝试：云端可由 env.ZHIPU_API_KEY 注入，浏览器端无法感知
+  const usable = opts.strict
+    ? (preferred === 'zhipu' || providerUsable(preferred) ? [preferred] : [])
+    : ids.filter((id) => id === 'zhipu' || providerUsable(id));
+  if (!usable.length) {
+    throw new ApiError(opts.strict ? `「${providerConfig(preferred).name}」未填写 API Key` : '未配置任何 API Key，请到「设置」填写');
+  }
+
   let lastError;
-  for (let i = 0; i < chain.length; i++) {
-    try {
-      return await chatOnce({ ...opts, model: chain[i] });
-    } catch (e) {
-      lastError = e;
-      if (opts.signal?.aborted || e.name === 'AbortError') throw e;
-      const retryable = e.status === 429 || e.code === '1305' || /拥堵|访问量过大|稍后再试/.test(e.message);
-      if (!retryable || e.partial) throw e;
-      if (i < chain.length - 1) {
-        const next = chain[i + 1];
-        window.dispatchEvent(new CustomEvent('uu:fallback', { detail: { from: chain[i], to: next } }));
-        await new Promise((r) => setTimeout(r, 1500));
+  for (let pi = 0; pi < usable.length; pi++) {
+    const id = usable[pi];
+    const cfg = providerConfig(id);
+    const chain = opts.model && id === 'zhipu' ? [opts.model, ...stripGlm(opts.model)] : cfg.models;
+    for (let i = 0; i < chain.length; i++) {
+      try {
+        return await chatOnce({ ...opts, provider: id, model: chain[i] });
+      } catch (e) {
+        lastError = e;
+        if (opts.signal?.aborted || e.name === 'AbortError') throw e;
+        const retryable = e.status === 429 || e.code === '1305' || /拥堵|访问量过大|稍后再试|繁忙/.test(e.message);
+        if (e.partial) throw e;
+        if (i < chain.length - 1 && retryable) {
+          window.dispatchEvent(new CustomEvent('uu:fallback', { detail: { from: chain[i], to: chain[i + 1], provider: cfg.name } }));
+          await new Promise((r) => setTimeout(r, 1200));
+        }
       }
+    }
+    if (pi < usable.length - 1) {
+      const next = usable[pi + 1];
+      window.dispatchEvent(new CustomEvent('uu:fallback', {
+        detail: { from: cfg.name, to: providerConfig(next).name, provider: cfg.name },
+      }));
     }
   }
   throw lastError;
 }
 
+function stripGlm(exclude) {
+  return FALLBACK_CHAIN.filter((m) => m !== exclude);
+}
+
 async function chatOnce({
   messages,
   model,
+  provider = 'zhipu',
   onDelta,
   onReason,
   signal,
@@ -127,18 +263,21 @@ async function chatOnce({
   stream = true,
 }) {
   const s = getSettings();
+  const cfg = providerConfig(provider);
   const useThinking = thinking ?? s.thinking;
   const body = {
-    model: model || s.textModel,
+    model: model || cfg.model,
     messages,
     stream,
     temperature,
     max_tokens: maxTokens,
-    thinking: { type: useThinking ? 'enabled' : 'disabled' },
   };
-  const resp = await fetch(`${apiBase()}/paas/v4/chat/completions`, {
+  if (provider === 'zhipu') body.thinking = { type: useThinking ? 'enabled' : 'disabled' };
+  const headers = { 'Content-Type': 'application/json' };
+  if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey.trim()}`;
+  const resp = await fetch(chatEndpoint(provider), {
     method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    headers,
     body: JSON.stringify(body),
     signal,
   });
@@ -204,9 +343,29 @@ async function chatOnce({
   return full;
 }
 
-/** 文生图 / 图生图（CogView-3-Flash 免费） */
-export async function generateImage({ prompt, size, model, signal }) {
+/** 文生图（智谱 CogView 或 豆包 Seedream，均免费） */
+export async function generateImage({ prompt, size, model, signal, provider }) {
   const s = getSettings();
+  const src = provider || s.imageProvider || 'zhipu';
+  if (src === 'doubao') {
+    const cfg = providerConfig('doubao');
+    const resp = await fetch(`${apiBase()}/oai/doubao/images/generations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({
+        model: model || s.doubaoImageModel || 'doubao-seedream-5-0-flash-260915',
+        prompt,
+        size: size || s.doubaoImageSize || '2048x2048',
+        response_format: 'url',
+      }),
+      signal,
+    });
+    if (!resp.ok) throw await parseError(resp);
+    const data = await resp.json();
+    const url = data?.data?.[0]?.url;
+    if (!url) throw new ApiError('豆包出图失败：没有返回图片地址');
+    return { url, requestId: data.id || '' };
+  }
   const resp = await fetch(`${apiBase()}/paas/v4/images/generations`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
@@ -224,9 +383,28 @@ export async function generateImage({ prompt, size, model, signal }) {
   return { url, requestId: data.request_id || data.id };
 }
 
-/** 创建视频任务（免费 CogVideoX-Flash，异步） */
-export async function createVideo({ prompt, imageUrl, size, fps = 30, duration, withAudio = false, model, signal }) {
+/** 创建视频任务（智谱 CogVideoX 或 豆包 Seedance，异步） */
+export async function createVideo({ prompt, imageUrl, size, fps = 30, duration, withAudio = false, model, signal, provider }) {
   const s = getSettings();
+  const src = provider || s.videoProvider || 'zhipu';
+  if (src === 'doubao') {
+    const cfg = providerConfig('doubao');
+    const dur = Number(duration || s.videoDuration || 5);
+    const ratio = (size || s.videoSize || '1280x720').startsWith('720') || /9:16|竖/.test(size || '') ? '9:16' : '16:9';
+    const content = [];
+    if (imageUrl) content.push({ type: 'image_url', image_url: { url: imageUrl } });
+    content.push({ type: 'text', text: `${prompt || ''} --ratio ${ratio} --duration ${dur}` });
+    const resp = await fetch(`${apiBase()}/oai/doubao/contents/generations/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({ model: model || s.doubaoVideoModel || 'doubao-seedance-2-0-mini-260615', content }),
+      signal,
+    });
+    if (!resp.ok) throw await parseError(resp);
+    const data = await resp.json();
+    if (!data.id) throw new ApiError('豆包视频任务创建失败：没有返回任务 ID');
+    return { id: data.id, status: 'PROCESSING', provider: 'doubao' };
+  }
   const body = {
     model: model || s.videoModel,
     prompt: prompt || '',
@@ -246,11 +424,27 @@ export async function createVideo({ prompt, imageUrl, size, fps = 30, duration, 
   if (!resp.ok) throw await parseError(resp);
   const data = await resp.json();
   if (!data.id) throw new ApiError('视频任务创建失败：没有返回任务 ID');
-  return { id: data.id, status: data.task_status || 'PROCESSING' };
+  return { id: data.id, status: data.task_status || 'PROCESSING', provider: 'zhipu' };
 }
 
 /** 查询异步任务 */
-export async function getAsyncResult(id, signal) {
+export async function getAsyncResult(id, signal, provider = 'zhipu') {
+  if (provider === 'doubao') {
+    const cfg = providerConfig('doubao');
+    const resp = await fetch(`${apiBase()}/oai/doubao/contents/generations/tasks/${encodeURIComponent(id)}`, {
+      headers: { Authorization: `Bearer ${cfg.apiKey}` },
+      signal,
+    });
+    if (!resp.ok) throw await parseError(resp);
+    const data = await resp.json();
+    const st = String(data.status || '').toLowerCase();
+    const mapped = st === 'succeeded' ? 'SUCCESS' : st === 'failed' ? 'FAIL' : 'PROCESSING';
+    return {
+      task_status: mapped,
+      video_result: data.content?.video_url ? [{ url: data.content.video_url, cover_image_url: '' }] : [],
+      error: st === 'failed' ? { message: data.error?.message || '豆包视频生成失败' } : undefined,
+    };
+  }
   const resp = await fetch(`${apiBase()}/paas/v4/async-result/${encodeURIComponent(id)}`, {
     headers: authHeaders(),
     signal,
@@ -264,13 +458,13 @@ export async function getAsyncResult(id, signal) {
  * @param {string} id
  * @param {(info:{status:string,elapsed:number})=>void} onTick
  */
-export async function waitVideo(id, { onTick, signal, timeout = 12 * 60 * 1000, interval = 6000 } = {}) {
+export async function waitVideo(id, { onTick, signal, timeout = 12 * 60 * 1000, interval = 6000, provider = 'zhipu' } = {}) {
   const start = Date.now();
   let netErrors = 0;
   while (Date.now() - start < timeout) {
     if (signal?.aborted) throw new DOMException('已取消', 'AbortError');
     try {
-      const data = await getAsyncResult(id, signal);
+      const data = await getAsyncResult(id, signal, provider);
       const status = data.task_status || 'PROCESSING';
       onTick?.({ status, elapsed: Date.now() - start });
       if (status === 'SUCCESS') {
@@ -322,12 +516,16 @@ export function blobToDataUrl(blob) {
 }
 
 /** 测试 Key / 代理是否可用 */
-export async function testConnection() {
+export async function testConnection(providerId = 'zhipu') {
+  const cfg = providerConfig(providerId);
   const t0 = performance.now();
   const text = await chat({
+    provider: providerId,
+    model: cfg.model,
+    strict: true,
     messages: [{ role: 'user', content: '只回复：连接成功' }],
-    maxTokens: 12,
+    maxTokens: 16,
     stream: false,
   });
-  return { text: text.trim(), ms: Math.round(performance.now() - t0) };
+  return { text: text.trim(), ms: Math.round(performance.now() - t0), provider: cfg.name, model: cfg.model };
 }

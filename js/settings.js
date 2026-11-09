@@ -1,8 +1,8 @@
 /* 设置：Key、模型、存储、部署说明 */
 import { state } from './state.js';
-import { $, esc, toast, setBusy, modal, confirmDialog } from './ui.js';
+import { $, $$, esc, toast, setBusy, modal, confirmDialog } from './ui.js';
 import { getSettings, saveSettings, storageUsage, clearAll } from './store.js';
-import { TEXT_MODELS, VISION_MODELS, IMAGE_MODELS, VIDEO_MODELS, testConnection } from './api.js';
+import { TEXT_MODELS, VISION_MODELS, IMAGE_MODELS, VIDEO_MODELS, PROVIDERS, testConnection } from './api.js';
 
 export function renderSettings(root) {
   const s = getSettings();
@@ -41,10 +41,24 @@ export function renderSettings(root) {
           </div>
         </div>
         <div class="row">
-          <div class="field"><label>图像模型</label>
+          <div class="field"><label>图片来源</label>
+            <select class="select" id="imageProvider">
+              <option value="zhipu" ${s.imageProvider !== 'doubao' ? 'selected' : ''}>智谱 CogView-3-Flash（免费 · 带水印）</option>
+              <option value="doubao" ${s.imageProvider === 'doubao' ? 'selected' : ''}>豆包 Seedream 5.0 Flash（免费额度 · 无水印）</option>
+            </select>
+          </div>
+          <div class="field"><label>视频来源</label>
+            <select class="select" id="videoProvider">
+              <option value="zhipu" ${s.videoProvider !== 'doubao' ? 'selected' : ''}>智谱 CogVideoX-Flash（免费 · 高峰拥堵）</option>
+              <option value="doubao" ${s.videoProvider === 'doubao' ? 'selected' : ''}>豆包 Seedance 2.0 Mini（免费额度 · 较快）</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label>图像模型（智谱）</label>
             <select class="select" id="imageModel">${IMAGE_MODELS.map((m) => `<option value="${m.id}" ${m.id === s.imageModel ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
           </div>
-          <div class="field"><label>视频模型</label>
+          <div class="field"><label>视频模型（智谱）</label>
             <select class="select" id="videoModel">${VIDEO_MODELS.map((m) => `<option value="${m.id}" ${m.id === s.videoModel ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
           </div>
         </div>
@@ -63,6 +77,28 @@ export function renderSettings(root) {
       </div>
 
       <div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head"><h3>备用免费供应商</h3><span class="sub">OpenAI 兼容</span></div>
+          <div class="field"><label>优先使用</label>
+            <select class="select" id="preferredProvider">
+              <option value="zhipu" ${s.preferredProvider === 'zhipu' ? 'selected' : ''}>智谱 BigModel（默认）</option>
+              ${PROVIDERS.map((p) => `<option value="${p.id}" ${s.preferredProvider === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}
+            </select>
+          </div>
+          ${PROVIDERS.map((p) => `
+            <div class="field" style="border-top:1px dashed var(--line);padding-top:10px">
+              <label>${p.name} <b>${p.note}</b></label>
+              <input class="input" data-pk="${p.id}" type="password" placeholder="API Key（不填则不启用）" value="${esc(s.providers?.[p.id]?.apiKey || '')}" autocomplete="off" />
+              <div class="inline" style="margin-top:6px;flex-wrap:nowrap">
+                <input class="input" data-pm="${p.id}" placeholder="模型名" value="${esc(s.providers?.[p.id]?.model || p.model)}" />
+                <button class="btn btn-ghost" data-pt="${p.id}" style="flex:0 0 auto">测试</button>
+              </div>
+              <div class="tiny" style="margin-top:4px">${p.base}</div>
+            </div>`).join('')}
+          <div class="note warn" style="margin-top:10px">只填自己注册拿到的 Key；网上售卖的「AI 兑换码 / 内部激活码」基本是钓鱼。免费额度政策随时会变，多配几家做备用。</div>
+          <div id="providerTestResult"></div>
+        </div>
+
         <div class="card" style="margin-bottom:16px">
           <div class="card-head"><h3>免费模型可用性</h3><span class="sub">实测</span></div>
           <div class="kv"><span>GLM-4.7-Flash</span><b style="color:var(--ok)">可用 · 200K</b></div>
@@ -152,6 +188,27 @@ npm run dev
     toast('设置已保存', 'ok');
   };
 
+  $$('[data-pt]').forEach((b) => {
+    b.onclick = async () => {
+      saveSettings(collect());
+      const id = b.dataset.pt;
+      const name = PROVIDERS.find((p) => p.id === id)?.name || id;
+      setBusy(b, true, '测试');
+      const box = $('#providerTestResult');
+      if (box) box.innerHTML = '';
+      try {
+        const r = await testConnection(id);
+        if (box) box.innerHTML = `<div class="note ok">${esc(name)} 可用：${esc(r.text)}（${r.ms} ms · 模型 ${esc(r.model)}）</div>`;
+        toast(`${name} 连接成功`, 'ok');
+      } catch (err) {
+        if (box) box.innerHTML = `<div class="note err">${esc(name)} 连接失败：${esc(err.message)}</div>`;
+        toast(err.message, 'err', 4000);
+      } finally {
+        setBusy(b, false);
+      }
+    };
+  });
+
   $('#testBtn').onclick = async (e) => {
     saveSettings(collect());
     const btn = e.currentTarget;
@@ -186,11 +243,22 @@ npm run dev
   });
 
   function collect() {
+    const providers = {};
+    for (const p of PROVIDERS) {
+      providers[p.id] = {
+        apiKey: $(`[data-pk="${p.id}"]`).value.trim(),
+        model: $(`[data-pm="${p.id}"]`).value.trim() || p.model,
+      };
+    }
     return {
       apiKey: $('#apiKey').value.trim(),
       apiBase: $('#apiBase').value.trim() || '/api',
+      preferredProvider: $('#preferredProvider').value,
+      providers,
       textModel: $('#textModel').value,
       visionModel: $('#visionModel').value,
+      imageProvider: $('#imageProvider').value,
+      videoProvider: $('#videoProvider').value,
       imageModel: $('#imageModel').value,
       videoModel: $('#videoModel').value,
       concurrency: Number($('#concurrency').value),
@@ -201,9 +269,11 @@ npm run dev
 
   function updateStatusPill() {
     const key = $('#apiKey').value.trim();
+    const extra = PROVIDERS.filter((p) => $(`[data-pk="${p.id}"]`)?.value.trim()).length;
     const el = document.getElementById('apiStatus');
     if (!el) return;
-    el.className = key ? 'status-pill ok' : 'status-pill err';
-    el.innerHTML = key ? '<i></i> Key 已配置' : '<i></i> 未配置 Key';
+    const total = (key ? 1 : 0) + extra;
+    el.className = total ? 'status-pill ok' : 'status-pill err';
+    el.innerHTML = total ? `<i></i> ${total} 个供应商已配置` : '<i></i> 未配置 Key';
   }
 }
