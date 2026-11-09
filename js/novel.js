@@ -10,6 +10,17 @@ let generating = false;
 const GENRES = ['都市悬疑', '古装权谋', '玄幻修仙', '科幻末世', '现代言情', '无限流', '民国探案', '校园青春', '家庭伦理', '历史穿越'];
 const STYLES = ['强情节、快节奏、强钩子', '细腻文艺、情绪流', '轻松幽默、爽点密集', '冷峻写实、犯罪悬疑', '热血燃向、升级流', '狗血反转、短剧节奏'];
 
+/* 内容类型：决定大纲结构、prompt 风格与默认规模 */
+const CONTENT_TYPES = [
+  { id: 'novel', name: '长篇小说', desc: '章节制连载', defChapters: 60, defWords: 2000 },
+  { id: 'short', name: '短篇故事', desc: '1-5 章一次成型', desc2: '', defChapters: 3, defWords: 2000 },
+  { id: 'script_film', name: '电影文案 / 剧本', desc: '场景制，含台词动作', defChapters: 40, defWords: 1200 },
+  { id: 'script_anime', name: '动漫文案 / 分集脚本', desc: '分集大纲 + 画面描述', defChapters: 24, defWords: 1200 },
+  { id: 'copy', name: '营销文案 / 推文', desc: '短内容批量产出', defChapters: 10, defWords: 500 },
+];
+const TYPE_MAP = Object.fromEntries(CONTENT_TYPES.map((t) => [t.id, t]));
+const isScript = (t) => t === 'script_film' || t === 'script_anime';
+
 export function renderNovel(root) {
   const p = state.project;
   if (!p) { root.innerHTML = '<div class="empty"><b>请先创建项目</b></div>'; return; }
@@ -28,6 +39,11 @@ export function renderNovel(root) {
     <div class="split">
       <div class="card sticky">
         <div class="card-head"><h3>创作设定</h3><span class="sub">决定故事骨架</span></div>
+        <div class="field"><label>内容类型</label>
+          <select class="select" id="fType">
+            ${CONTENT_TYPES.map((t) => `<option value="${t.id}" ${(pr.type || 'novel') === t.id ? 'selected' : ''}>${t.name}｜${t.desc}</option>`).join('')}
+          </select>
+        </div>
         <div class="field"><label>题材类型</label>
           <select class="select" id="fGenre">${GENRES.map((g) => `<option ${g === pr.genre ? 'selected' : ''}>${g}</option>`).join('')}</select>
         </div>
@@ -46,17 +62,17 @@ export function renderNovel(root) {
               ${['第三人称', '第一人称', '双线视角'].map((x) => `<option ${x === pr.perspective ? 'selected' : ''}>${x}</option>`).join('')}
             </select>
           </div>
-          <div class="field"><label>章节数</label>
-            <input class="input" id="fChapters" type="number" min="1" max="200" value="${pr.chapters}" title="12 万字 ≈ 60 章 × 2000 字；30 万字 ≈ 100 章 × 3000 字" />
+          <div class="field"><label>章节数 <small>(≤600)</small></label>
+            <input class="input" id="fChapters" type="number" min="1" max="600" value="${pr.chapters}" title="300 万字 ≈ 600 章 × 5000 字；100 万字 ≈ 200 章 × 5000 字；12 万字 ≈ 60 章 × 2000 字" />
           </div>
         </div>
         <div class="field"><label>每章目标字数</label>
           <select class="select" id="fWords">
-            ${[800, 1200, 2000, 3000, 5000].map((w) => `<option value="${w}" ${w === pr.wordsPerChapter ? 'selected' : ''}>约 ${w} 字</option>`).join('')}
+            ${[500, 800, 1200, 2000, 3000, 5000].map((w) => `<option value="${w}" ${w === pr.wordsPerChapter ? 'selected' : ''}>约 ${w} 字</option>`).join('')}
           </select>
         </div>
         <button class="btn btn-soft" style="width:100%" id="savePremise">保存设定</button>
-        <div class="note" style="margin-top:14px">参考：<b>12 万字</b> ≈ 60 章 × 2000 字；<b>30 万字</b> ≈ 100 章 × 3000 字。每章都会带上大纲、角色、前两章结尾，保证连贯。</div>
+        <div class="note" style="margin-top:14px">规模参考：<b>500-1万字</b>文案/短故事：1-10 章；<b>12万字</b>：60 章 × 2000 字；<b>100万字</b>：200 章 × 5000 字；<b>300万字</b>：600 章 × 5000 字。超长篇大纲自动分批生成，每 5 章整理剧情进度保连贯。</div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:16px">
@@ -105,12 +121,13 @@ export function renderNovel(root) {
   };
   const collect = () => {
     p.premise = {
+      type: $('#fType').value || 'novel',
       genre: $('#fGenre').value,
       theme: $('#fTheme').value.trim(),
       hero: $('#fHero').value.trim(),
       style: $('#fStyle').value,
       perspective: $('#fPerspective').value,
-      chapters: Math.max(1, Math.min(200, Number($('#fChapters').value) || 6)),
+      chapters: Math.max(1, Math.min(600, Number($('#fChapters').value) || 6)),
       wordsPerChapter: Number($('#fWords').value) || 2000,
     };
     return p.premise;
@@ -118,6 +135,12 @@ export function renderNovel(root) {
   Object.values(premiseFields).forEach((sel) => {
     const el = $(sel);
     if (el) el.addEventListener('change', () => { collect(); saveSoon(); });
+  });
+  // 切换内容类型时自动填充推荐规模
+  $('#fType').addEventListener('change', () => {
+    const t = TYPE_MAP[$('#fType').value];
+    if (t) { $('#fChapters').value = t.defChapters; $('#fWords').value = t.defWords; }
+    collect(); saveSoon();
   });
   $('#fChapters').addEventListener('input', () => { collect(); saveSoon(); });
   $('#savePremise').onclick = () => { collect(); saveSoon(0); toast('设定已保存', 'ok'); };
@@ -209,7 +232,7 @@ export function renderNovel(root) {
     return abortCtrl.signal;
   }
 
-  /* 大纲 */
+  /* 大纲：短篇单次生成；长篇分批（每批 10 章）+ 故事主线骨架 */
   async function generateOutline(btn) {
     if (generating) return toast('正在生成，请稍候', 'warn');
     collect();
@@ -223,21 +246,55 @@ export function renderNovel(root) {
     const box = $('#streamBox');
     const signal = startAbort();
     try {
-      const text = await chat({
-        messages: [
-          { role: 'system', content: '你是资深中文网文主编，擅长设计强钩子、强反转的短剧化故事。' },
-          { role: 'user', content: outlinePrompt(p.premise, p.name) },
-        ],
-        maxTokens: Math.min(6000, 900 + p.premise.chapters * 220),
-        temperature: 0.9,
-        signal,
-        onDelta: (d) => {
-          box.textContent += d;
-          $('#streamMeta').textContent = `${box.textContent.replace(/\s/g, '').length} 字`;
-          box.scrollTop = box.scrollHeight;
-        },
-      });
-      p.outline = text.trim();
+      const total = p.premise.chapters;
+      if (total <= 20) {
+        // 短篇：一次生成
+        const text = await chat({
+          messages: [
+            { role: 'system', content: '你是资深中文网文主编，擅长设计强钩子、强反转的故事结构。' },
+            { role: 'user', content: outlinePrompt(p.premise, p.name, 1, total, '') },
+          ],
+          maxTokens: Math.min(8000, 1200 + total * 220),
+          temperature: 0.85,
+          signal,
+          onDelta: (d) => { box.textContent += d; $('#streamMeta').textContent = `${box.textContent.replace(/\s/g, '').length} 字`; box.scrollTop = box.scrollHeight; },
+        });
+        p.outline = text.trim();
+      } else {
+        // 长篇：先骨架，再分批
+        box.textContent = '【第 1 步】生成故事主线骨架...\n\n';
+        const arc = await chat({
+          messages: [
+            { role: 'system', content: '你是资深网文主编，擅长长篇故事结构设计。' },
+            { role: 'user', content: outlineArcPrompt(p.premise, p.name) },
+          ],
+          maxTokens: 2000, temperature: 0.85, signal,
+          onDelta: (d) => { box.textContent += d; box.scrollTop = box.scrollHeight; },
+        });
+        const BATCH = 10;
+        const allEntries = [];
+        let prevBatch = '';
+        for (let start = 1; start <= total; start += BATCH) {
+          const end = Math.min(start + BATCH - 1, total);
+          box.textContent += `\n\n【第 2 步】生成第 ${start}-${end} 章大纲...\n`;
+          const ctx = `【故事主线】\n${arc}\n\n${prevBatch}`;
+          const batchText = await chat({
+            messages: [
+              { role: 'system', content: '你是资深网文主编，擅长设计强钩子、强反转的章节大纲。' },
+              { role: 'user', content: outlinePrompt(p.premise, p.name, start, end, ctx) },
+            ],
+            maxTokens: 4000, temperature: 0.85, signal,
+            onDelta: (d) => { box.textContent += d; $('#streamMeta').textContent = `${box.textContent.replace(/\s/g, '').length} 字`; box.scrollTop = box.scrollHeight; },
+          });
+          parseOutline(batchText).filter((e) => e.index >= start && e.index <= end).forEach((e) => allEntries.push(e));
+          prevBatch = batchText;
+          if (signal.aborted) break;
+        }
+        allEntries.sort((a, b) => a.index - b.index);
+        const seen = new Set();
+        p.outline = allEntries.filter((e) => { if (seen.has(e.index)) return false; seen.add(e.index); return true; })
+          .map((e) => `第${e.index}章 ${e.title}｜${e.summary}`).join('\n');
+      }
       $('#outline').value = p.outline;
       $('#outlineMeta').textContent = `${countLines(p.outline)} 行`;
       saveSoon(0);
@@ -285,7 +342,7 @@ export function renderNovel(root) {
     if (generating) return toast('正在生成，请稍候', 'warn');
     if (!p.outline.trim()) return toast('请先生成或填写大纲', 'warn');
     const n = nextIndex();
-    if (n > 200) return toast('章节数已达上限', 'warn');
+    if (n > 600) return toast('章节数已达上限', 'warn');
     const entry = outlineEntries().find((x) => x.index === n) || { title: `第${n}章`, summary: '' };
     await writeChapter(n, entry, btn);
     renderChapters();
@@ -407,23 +464,45 @@ export function renderNovel(root) {
 }
 
 /* ---------------- prompts ---------------- */
-function outlinePrompt(pr, name) {
-  return `请为下面这部作品写一份可直接开写的小说大纲。
+const TYPE_LABEL = { novel: '长篇小说', short: '短篇故事', script_film: '电影剧本', script_anime: '动漫分集脚本', copy: '营销文案/推文' };
 
-【项目名】${name || '未命名'}
+function outlineArcPrompt(pr, name) {
+  const t = TYPE_LABEL[pr.type] || '长篇小说';
+  return `请为《${name || '未命名'}》设计${t}的全书主线骨架（不写章节）。
+
+【题材】${pr.genre}
+【核心设定/主题】${pr.theme || '请根据题材自行设计一个高概念'}
+【主角】${pr.hero || '请自行设计，要有明确欲望与致命弱点'}
+【风格】${pr.style}
+【计划总规模】${pr.chapters} 章/集
+
+要求：
+1. 用 400-600 字描述开端、发展、中段大反转、高潮收束四个阶段的核心剧情走向
+2. 点明主要人物、核心冲突、关键反转、最终结局走向
+3. 不要分章节，只写阶段概述`;
+}
+
+function outlinePrompt(pr, name, start, end, ctx) {
+  const t = TYPE_LABEL[pr.type] || '长篇小说';
+  const count = end - start + 1;
+  return `请为《${name || '未命名'}》这部${t}写大纲，输出第 ${start} 章到第 ${end} 章（共 ${count} 章）。
+
 【题材】${pr.genre}
 【核心设定/主题】${pr.theme || '请根据题材自行设计一个高概念'}
 【主角】${pr.hero || '请自行设计，要有明确欲望与致命弱点'}
 【风格】${pr.style}
 【叙事视角】${pr.perspective}
-【计划章节】${pr.chapters} 章
+【全书总章节】${pr.chapters} 章
 【每章目标字数】约 ${pr.wordsPerChapter} 字
 
+${ctx ? `${ctx}` : '【提示】这是开篇部分，需要快速建立人物、核心冲突与钩子。'}
+
 要求：
-1. 每章单独一行，格式严格为：第1章 章节标题｜本章梗概（80-120字，必须包含冲突、转折或钩子）
-2. 主线清晰，人物动机可信，节奏递进，中段有反转，最后一章收束并留余味
-3. 不要输出任何解释、书名号、Markdown 符号或空行
-4. 只输出大纲本身`;
+1. 每章单独一行，格式严格为：第${start}章 章节标题｜本章梗概（80-120字，必须包含冲突、转折或钩子）
+2. 必须恰好输出 ${count} 章，章号从第${start}章到第${end}章连续，不可跳号、不可少写
+3. 主线清晰，人物动机可信，节奏递进，中段有反转，最后一章收束并留余味
+4. 不要输出任何解释、书名号、Markdown 符号或空行
+5. 只输出大纲本身`;
 }
 
 function chapterPrompt(p, n, entry) {
@@ -433,7 +512,18 @@ function chapterPrompt(p, n, entry) {
   const tail2 = prev2 ? (prev2.content || '').slice(-600) : '';
   const progress = p.progressSummary || '';
   const entries = parseOutline(p.outline);
-  return `请继续创作《${p.name}》（第 ${n} 章 / 共 ${entries.length || p.premise.chapters} 章）。
+  const t = p.premise.type || 'novel';
+  const isScriptType = isScript(t);
+  const typeLabel = TYPE_LABEL[t] || '小说';
+  const structRule = isScriptType
+    ? '结构完整：场景切入（含场景描述/氛围/动作）→ 冲突升级（台词+表情动作）→ 转折 → 章末钩子'
+    : t === 'copy'
+      ? '结构完整：标题/开头抓人 → 核心卖点/情节 → 金句/反转 → 结尾引导互动'
+      : '结构完整：场景切入 → 冲突升级 → 转折 → 章末钩子';
+  const styleRule = isScriptType
+    ? '多用动作、表情、对话（口语化、有个性）、感官细节、画面描述；台词要符合人物身份性格；少做设定解释和心理独白'
+    : '多用动作、表情、对话（口语化、有个性）、感官细节；少做设定解释和心理独白';
+  return `请继续创作《${p.name}》（${typeLabel}，第 ${n} 章 / 共 ${entries.length || p.premise.chapters} 章）。
 
 【题材】${p.premise.genre}　【风格】${p.premise.style}　【视角】${p.premise.perspective}　【主角】${p.premise.hero || '见大纲'}
 【核心设定】${p.premise.theme}
@@ -452,9 +542,9 @@ ${prev1 ? `【第 ${n - 1} 章结尾】\n${tail1}\n` : '【提示】这是开篇
 本章梗概：${entry.summary || '按大纲推进，制造冲突与转折'}
 
 硬性要求：
-1. 约 ${p.premise.wordsPerChapter} 字，结构完整：场景切入 → 冲突升级 → 转折 → 章末钩子
+1. 约 ${p.premise.wordsPerChapter} 字，${structRule}
 2. 章末必须留钩子（悬念/反转/新危机），让读者忍不住翻下一章
-3. 多用动作、表情、对话（口语化、有个性）、感官细节；少做设定解释和心理独白
+3. ${styleRule}
 4. 与前文人物姓名、时间线、已埋伏笔严格一致；不要推翻已发生的剧情
 5. 不要写“本章完”“欲知后事”等套话，不要章节标题或序号
 6. 只输出正文，不要任何说明文字`;
