@@ -1,0 +1,8 @@
+{
+  "name": "uu-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev-server.mjs"
+  }
+}

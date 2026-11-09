@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>云幕 UU · 小说到短剧的免费 AI 创作台</title>
+<meta name="description" content="纯云端、纯免费的小说 / 剧本 / 分镜 / 画面 / 短剧生成工作台，基于智谱免费模型。" />
+<meta name="theme-color" content="#0b0b12" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%2322d3ee'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='%230b0b12'/%3E%3Cpath d='M18 22h28M18 32h28M18 42h18' stroke='url(%23g)' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="./assets/style.css" />
+</head>
+<body>
+<div class="ambient"><span></span><span></span><span></span></div>
+<div id="app">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="#/dashboard">
+      <div class="brand-mark">U</div>
+      <div class="brand-text">
+        <strong>云幕 UU</strong>
+        <small>云端创作台 · 免费</small>
+      </div>
+    </a>
+    <nav class="nav" id="nav">
+      <a data-route="dashboard" href="#/dashboard">
+        <svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6V11h-6v9Zm0-16v5h6V4h-6Z"/></svg>
+        <span>工作台</span>
+      </a>
+      <div class="nav-group">创作流程</div>
+      <a data-route="novel" href="#/novel">
+        <svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Zm3 2v3h8V6H8Zm0 6h8v-1H8v1Zm0 3h6v-1H8v1Z"/></svg>
+        <span>小说工坊</span><em>01</em>
+      </a>
+      <a data-route="script" href="#/script">
+        <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6V3Zm8 1.5V8h3.5L14 4.5ZM9 12h6v-1.4H9V12Zm0 3.5h6v-1.4H9v1.4Zm0 3.5h4v-1.4H9V19Z"/></svg>
+        <span>剧本分镜</span><em>02</em>
+      </a>
+      <a data-route="image" href="#/image">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4V4Zm2 2v9l4-3 3 2.5L17 9l1 1V6H6Zm3 4.5A1.75 1.75 0 1 0 9 13a1.75 1.75 0 0 0 0-3.5Z"/></svg>
+        <span>画面工坊</span><em>03</em>
+      </a>
+      <a data-route="video" href="#/video">
+        <svg viewBox="0 0 24 24"><path d="M4 6h12a2 2 0 0 1 2 2v2.2l3.2-2.1c.5-.3 1.1 0 1.1.6v6.6c0 .6-.6.9-1.1.6L18 13.8V16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Zm5 3v6l5-3-5-3Z"/></svg>
+        <span>短剧工坊</span><em>04</em>
+      </a>
+      <a data-route="compose" href="#/compose">
+        <svg viewBox="0 0 24 24"><path d="M3 5h18v14H3V5Zm2 2v7l4-2.6 3 2 4-3.4 3 2.4V7H5Zm3 2.2A1.6 1.6 0 1 0 8 12.4a1.6 1.6 0 0 0 0-3.2ZM8 15h8v4H8v-4Z"/></svg>
+        <span>成片合成</span><em>05</em>
+      </a>
+      <div class="nav-group">管理</div>
+      <a data-route="projects" href="#/projects">
+        <svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z"/></svg>
+        <span>项目库</span>
+      </a>
+      <a data-route="settings" href="#/settings">
+        <svg viewBox="0 0 24 24"><path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5Zm8.4 3.5c0 .5-.05 1-.13 1.47l2 1.55-1.9 3.3-2.38-.95c-.77.6-1.63 1.08-2.57 1.4L15.1 21h-3.8l-.32-2.23a7.4 7.4 0 0 1-2.57-1.4l-2.38.95-1.9-3.3 2-1.55A7.7 7.7 0 0 1 6 12c0-.5.05-1 .13-1.47l-2-1.55 1.9-3.3 2.38.95c.77-.6 1.63-1.08 2.57-1.4L11.3 3h3.8l.32 2.23c.94.32 1.8.8 2.57 1.4l2.38-.95 1.9 3.3-2 1.55c.08.47.13.97.13 1.47Z"/></svg>
+        <span>设置</span>
+      </a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="free-chip"><i></i> 免费模型栈</div>
+      <p>GLM-4.7-Flash · CogView-3-Flash<br/>CogVideoX-Flash</p>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menuBtn" title="菜单">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z"/></svg>
+      </button>
+      <div class="crumb" id="crumb">工作台</div>
+      <div class="project-switch" id="projectSwitch">
+        <span class="dot"></span>
+        <select id="projectSelect" aria-label="切换项目"></select>
+      </div>
+      <div class="top-actions">
+        <span class="status-pill" id="apiStatus"><i></i> 未配置 Key</span>
+        <button class="btn btn-ghost" id="topNew">新建项目</button>
+        <button class="btn btn-primary" id="topSettings">API 设置</button>
+      </div>
+    </header>
+    <main id="view" class="view"></main>
+  </div>
+</div>
+
+<div id="toast" class="toast-wrap"></div>
+<div id="modalRoot"></div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
