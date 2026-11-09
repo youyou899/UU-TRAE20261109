@@ -27,6 +27,7 @@ const MODELS = [
 
 const PREMISE = {
   name: '镜城诡事录',
+  type: 'novel', // novel 长篇小说 | short 短篇故事 | script_film 电影剧本 | script_anime 动漫分集脚本 | copy 营销文案
   genre: '悬疑推理 / 都市奇幻',
   theme:
     '在一座镜面能映照出人内心秘密的滨海小城里，过气刑警重返旧地，连环命案的线索全部指向二十年前他亲手办错的那桩"铁案"。每一面镜子都在逼他直视被刻意遗忘的真相。',
